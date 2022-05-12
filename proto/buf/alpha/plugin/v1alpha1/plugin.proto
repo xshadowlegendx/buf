@@ -1,0 +1,111 @@
+// Copyright 2020-2022 Buf Technologies, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+syntax = "proto3";
+
+package buf.alpha.plugin.v1alpha1;
+
+import "buf/alpha/plugin/v1alpha1/file.proto";
+
+// PluginInfo identifies a plugin previously executed
+// in the generation, as well as information about the
+// files that it produced.
+message PluginInfo {
+  // The plugin's name.
+  string name = 1;
+  // The plugin's alias. By default, this is the base element
+  // of the plugin's name.
+  string alias = 2;
+  // The plugin's base import path. Plugins that depend on this plugin's
+  // generated code should use the base_import_path and the fully-qualified
+  // name of the type to determine how they should import a given type. The
+  // semantics of how to do so will vary depending on the language used
+  // (e.g. for JS, relative paths between plugin ouput directories are used).
+  // Many plugins will not need to use this value at all.
+  //
+  // For example,
+  //
+  //  Go:
+  //    base_import_path: "github.com/bufbuild/buf/plugin/simple/gen/proto/go"
+  //
+  //    import "github.com/bufbuild/buf/plugin/simple/gen/proto/go/foo/v1"
+  //
+  //    // Bar imports the foov1.Foo type.
+  //    type Bar struct {
+  //      Foo foov1.Foo
+  //    }
+  //
+  //  JS:
+  //    base_import_path: "../../gen/proto/protobuf-es"
+  //
+  //    import type { Foo } from "../../gen/proto/protobuf-es/foo/v1/foo.js";
+  //
+  //    export function doSomething(): Foo {
+  //      ...
+  //    }
+  string base_import_path = 3;
+}
+
+// Parameter is a plugin parameter value.
+message Parameter {
+  // The name of the parameter.
+  string name = 1;
+  // The value of the parameter.
+  oneof value {
+    string string_value = 2;
+    bool bool_value = 3;
+    int32 int32_value = 4;
+    float float_value = 5;
+  }
+}
+
+// A single generated file.
+message GeneratedFile {
+  // The file name, relative to the output directory.  The name must not
+  // contain "." or ".." components and must be relative, not be absolute (so,
+  // the file cannot lie outside the output directory).  "/" must be used as
+  // the path separator, not "\".
+  optional string name = 1;
+  // The file's content.
+  optional string content = 2;
+}
+
+// A generate request.
+message GenerateRequest {
+  // The list of plugins that have been executed in this generation invocation.
+  // This list will contain the dependencies required by the current plugin (i.e.
+  // plugins are executed in DAG order).
+  repeated PluginInfo plugin_infos = 1;
+  // The list of files.
+  repeated File files = 2;
+  // The subset of files that the plugin should generate code for.
+  repeated string files_to_generate = 3;
+  // The set of parameters, where a parameter is a single key, value pair.
+  repeated Parameter parameters = 4;
+}
+
+// A generate response.
+message GenerateResponse {
+  // Error message.  If non-empty, code generation failed.  The plugin process
+  // should exit with status code zero even if it reports an error in this way.
+  //
+  // This should be used to indicate errors in .proto files which prevent the
+  // code generator from generating correct code.  Errors which indicate a
+  // problem in protoc itself -- such as the input CodeGeneratorRequest being
+  // unparseable -- should be reported by writing a message to stderr and
+  // exiting with a non-zero status code.
+  string error = 1;
+  // The generated files.
+  repeated GeneratedFile generated_files = 2;
+}

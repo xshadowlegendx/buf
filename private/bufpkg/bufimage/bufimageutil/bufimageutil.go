@@ -20,8 +20,14 @@ import (
 	"fmt"
 
 	"github.com/bufbuild/buf/private/bufpkg/bufimage"
+	pluginv1alpha1 "github.com/bufbuild/buf/private/gen/proto/go/buf/alpha/plugin/v1alpha1"
 	"github.com/bufbuild/buf/private/pkg/protosource"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/reflect/protodesc"
+	"google.golang.org/protobuf/reflect/protoreflect"
+	"google.golang.org/protobuf/reflect/protoregistry"
 	"google.golang.org/protobuf/types/descriptorpb"
+	"google.golang.org/protobuf/types/dynamicpb"
 )
 
 var (
@@ -70,6 +76,312 @@ func FreeMessageRangeStrings(
 		}
 	}
 	return s, nil
+}
+
+// NewPluginFiles converts the Image to []*pluginv1alpha1.File.
+func NewPluginFiles(image bufimage.Image) ([]*pluginv1alpha1.File, error) {
+	registryFiles, err := protodesc.NewFiles(bufimage.ImageToFileDescriptorSet(image))
+	if err != nil {
+		return nil, err
+	}
+	// First pass to register all the types (including the extensions).
+	var rangeError error
+	registryTypes := new(protoregistry.Types)
+	registryFiles.RangeFiles(
+		func(file protoreflect.FileDescriptor) bool {
+			if err := registerAllExtensions(registryTypes, file); err != nil {
+				rangeError = err
+				return false
+			}
+			return true
+		},
+	)
+	if rangeError != nil {
+		return nil, rangeError
+	}
+	unmarshalOptions := proto.UnmarshalOptions{
+		Resolver: registryTypes,
+	}
+	// Second pass to create all of the plugin files.
+	pluginFiles := make([]*pluginv1alpha1.File, 0, len(image.Files()))
+	registryFiles.RangeFiles(
+		func(fileDescriptor protoreflect.FileDescriptor) bool {
+			pluginFile, err := pluginFileForFileDescriptor(
+				fileDescriptor,
+				unmarshalOptions,
+			)
+			if err != nil {
+				rangeError = err
+				return false
+			}
+			pluginFiles = append(pluginFiles, pluginFile)
+			return true
+		},
+	)
+	if rangeError != nil {
+		return nil, rangeError
+	}
+	return pluginFiles, nil
+}
+
+func pluginFileForFileDescriptor(
+	fileDescriptor protoreflect.FileDescriptor,
+	unmarshaler proto.UnmarshalOptions,
+) (*pluginv1alpha1.File, error) {
+	syntax, err := pluginSyntaxForFileDescriptor(fileDescriptor)
+	if err != nil {
+		return nil, err
+	}
+	pluginOptions, err := pluginOptionsForDescriptor(
+		fileDescriptor,
+		fileDescriptor.Options(),
+		unmarshaler,
+	)
+	if err != nil {
+		return nil, err
+	}
+	// TODO: Add all of the other types (e.g. messages, enums, etc).
+	pluginFile := &pluginv1alpha1.File{
+		Path:    fileDescriptor.Path(),
+		Syntax:  syntax,
+		Package: pluginPackageForFileDescriptor(fileDescriptor),
+		Options: pluginOptions,
+	}
+	return pluginFile, nil
+}
+
+func pluginSyntaxForFileDescriptor(
+	fileDescriptor protoreflect.FileDescriptor,
+) (*pluginv1alpha1.Syntax, error) {
+	var value pluginv1alpha1.Syntax_Value
+	switch syntax := fileDescriptor.Syntax(); syntax {
+	case protoreflect.Proto2:
+		value = pluginv1alpha1.Syntax_VALUE_PROTO2
+	case protoreflect.Proto3:
+		value = pluginv1alpha1.Syntax_VALUE_PROTO3
+	default:
+		return nil, fmt.Errorf("unrecognized syntax %v", syntax.String())
+	}
+	sourceLocation := fileDescriptor.SourceLocations().ByPath(
+		protoreflect.SourcePath([]int32{12}),
+	)
+	return &pluginv1alpha1.Syntax{
+		Value: value,
+		SourceInfo: pluginSourceInfoForSourceLocation(
+			fileDescriptor.Path(),
+			sourceLocation,
+		),
+	}, nil
+}
+
+func pluginPackageForFileDescriptor(
+	fileDescriptor protoreflect.FileDescriptor,
+) *pluginv1alpha1.Package {
+	sourceLocation := fileDescriptor.SourceLocations().ByPath(
+		protoreflect.SourcePath([]int32{2}),
+	)
+	return &pluginv1alpha1.Package{
+		Name: string(fileDescriptor.Package()),
+		SourceInfo: pluginSourceInfoForSourceLocation(
+			fileDescriptor.Path(),
+			sourceLocation,
+		),
+	}
+}
+
+func pluginOptionsForDescriptor(
+	fileDescriptor protoreflect.FileDescriptor,
+	options protoreflect.ProtoMessage,
+	unmarshaler proto.UnmarshalOptions,
+) ([]*pluginv1alpha1.Option, error) {
+	bytes, err := proto.Marshal(options)
+	if err != nil {
+		return nil, err
+	}
+	if resetter, ok := options.(interface{ Reset() }); ok {
+		// If this option value has a Reset method, use it.
+		resetter.Reset()
+	}
+	if err := unmarshaler.Unmarshal(bytes, options); err != nil {
+		return nil, err
+	}
+	// TODO: The path prefix constants are defined in protosource, but
+	// they're un-exported.
+	//
+	// Now that we need them in multiple places (Managed Mode also uses
+	// them), we should consolidate these and import them from a single
+	// location.
+	var pathPrefix []int32
+	switch options.(type) {
+	case *descriptorpb.FileOptions:
+		pathPrefix = []int32{8}
+	case *descriptorpb.EnumOptions:
+		pathPrefix = []int32{3}
+	case *descriptorpb.EnumValueOptions:
+		pathPrefix = []int32{3}
+	case *descriptorpb.MessageOptions:
+		pathPrefix = []int32{7}
+	case *descriptorpb.FieldOptions:
+		pathPrefix = []int32{8}
+	case *descriptorpb.OneofOptions:
+		pathPrefix = []int32{2}
+	case *descriptorpb.ServiceOptions:
+		pathPrefix = []int32{3}
+	case *descriptorpb.MethodOptions:
+		pathPrefix = []int32{4}
+	}
+	var rangeError error
+	var pluginOptions []*pluginv1alpha1.Option
+	options.ProtoReflect().Range(
+		// TODO: This ranges over the fields in an undefined order.
+		// We ought to preserve the order specified in the .proto
+		// source file (like the FileDescriptorProto) to make this
+		// deterministic. This is also relevant for determining where
+		// the SourceLocation is defined.
+		//
+		// If we can't find a good way to range over the values in
+		// a deterministic order, the least we could do is sort the
+		// result so that our output is still deterministic.
+		func(fieldDescriptor protoreflect.FieldDescriptor, v protoreflect.Value) bool {
+			// Custom options might have multiple source locations associated
+			// with them. For example,
+			//
+			//  syntax = "proto2";
+			//
+			//  // Leading comments on (custom).
+			//  option (custom).foo = "abc"
+			//
+			//  // More leading comments on (custom).
+			//  option (custom).bar = "def"
+			//
+			// TODO: How are source locations distinguishable across options that
+			// have the same pathPrefix (e.g. FileOptions and FieldOptions
+			// both have a [8] prefix). We need to take a closer look at SourceCodeInfo
+			// here.
+			sourceLocation := fileDescriptor.SourceLocations().ByPath(
+				append(pathPrefix, int32(fieldDescriptor.Number())),
+			)
+			pluginOption := &pluginv1alpha1.Option{
+				Name: string(fieldDescriptor.Name()),
+				SourceInfo: pluginSourceInfoForSourceLocation(
+					fileDescriptor.Path(),
+					sourceLocation,
+				),
+			}
+			switch typed := v.Interface().(type) {
+			case nil:
+				// The option value should be 'nil' here,
+				// so there's nothing for us to do.
+			case bool:
+				pluginOption.Value = &pluginv1alpha1.Option_BoolValue{
+					BoolValue: v.Bool(),
+				}
+			case int32:
+				pluginOption.Value = &pluginv1alpha1.Option_Int32Value{
+					Int32Value: int32(v.Int()),
+				}
+			case int64:
+				pluginOption.Value = &pluginv1alpha1.Option_Int64Value{
+					Int64Value: v.Int(),
+				}
+			case uint32:
+				pluginOption.Value = &pluginv1alpha1.Option_Uint32Value{
+					Uint32Value: uint32(v.Uint()),
+				}
+			case uint64:
+				pluginOption.Value = &pluginv1alpha1.Option_Uint64Value{
+					Uint64Value: v.Uint(),
+				}
+			case float32:
+				pluginOption.Value = &pluginv1alpha1.Option_FloatValue{
+					FloatValue: float32(v.Float()),
+				}
+			case float64:
+				pluginOption.Value = &pluginv1alpha1.Option_DoubleValue{
+					DoubleValue: v.Float(),
+				}
+			case string:
+				pluginOption.Value = &pluginv1alpha1.Option_StringValue{
+					StringValue: v.String(),
+				}
+			case []byte:
+				pluginOption.Value = &pluginv1alpha1.Option_BytesValue{
+					BytesValue: v.Bytes(),
+				}
+			case protoreflect.EnumNumber:
+				// Enums are encoded as int32 values.
+				//
+				// https://developers.google.com/protocol-buffers/docs/proto3#enum
+				pluginOption.Value = &pluginv1alpha1.Option_Int32Value{
+					Int32Value: int32(v.Enum()),
+				}
+			case protoreflect.Message:
+				// TODO: For now, we reuse the bytes_value field to encode
+				// arbitrary messages, too.
+				//
+				// We might want to define a separate field name with a bytes
+				// type to make this more clear, but it would be redundant.
+				valueBytes, err := proto.Marshal(typed.(proto.Message))
+				if err != nil {
+					rangeError = err
+					return false
+				}
+				pluginOption.Value = &pluginv1alpha1.Option_BytesValue{
+					BytesValue: valueBytes,
+				}
+			default:
+				rangeError = fmt.Errorf("unexpected option: found %T", typed)
+				return false
+			}
+			pluginOptions = append(pluginOptions, pluginOption)
+			return true
+		},
+	)
+	if rangeError != nil {
+		return nil, rangeError
+	}
+	return pluginOptions, nil
+}
+
+func pluginSourceInfoForSourceLocation(
+	filePath string,
+	sourceLocation protoreflect.SourceLocation,
+) *pluginv1alpha1.SourceInfo {
+	if len(sourceLocation.Path) == 0 {
+		return nil
+	}
+	return &pluginv1alpha1.SourceInfo{
+		FilePath:                filePath,
+		StartLine:               int32(sourceLocation.StartLine),
+		EndLine:                 int32(sourceLocation.EndLine),
+		StartColumn:             int32(sourceLocation.StartColumn),
+		EndColumn:               int32(sourceLocation.EndColumn),
+		LeadingComments:         sourceLocation.LeadingComments,
+		TrailingComments:        sourceLocation.TrailingComments,
+		LeadingDetachedComments: sourceLocation.LeadingDetachedComments,
+	}
+}
+
+func registerAllExtensions(
+	registryTypes *protoregistry.Types,
+	descriptor interface {
+		Messages() protoreflect.MessageDescriptors
+		Extensions() protoreflect.ExtensionDescriptors
+	},
+) error {
+	messages := descriptor.Messages()
+	for i := 0; i < messages.Len(); i++ {
+		if err := registerAllExtensions(registryTypes, messages.Get(i)); err != nil {
+			return err
+		}
+	}
+	extensions := descriptor.Extensions()
+	for i := 0; i < extensions.Len(); i++ {
+		if err := registryTypes.RegisterExtension(dynamicpb.NewExtensionType(extensions.Get(i))); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // ImageFilteredByTypes returns a minimal image containing only the descriptors

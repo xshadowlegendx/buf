@@ -1,0 +1,336 @@
+// Copyright 2020-2022 Buf Technologies, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+syntax = "proto3";
+
+package buf.alpha.plugin.v1alpha1;
+
+// A protocol buffer file.
+message File {
+  // The file's path.
+  string path = 1;
+  // The file's syntax.
+  Syntax syntax = 2;
+  // The file's package.
+  Package package = 3;
+  // The file's import statements.
+  repeated Import imports = 4;
+  // The list of messages.
+  repeated Message messages = 5;
+  // The list of enums.
+  repeated Enum enums = 6;
+  // The list of services.
+  repeated Service services = 7;
+  // The list of extensions. proto2 syntax only.
+  repeated Extension extensions = 8;
+  // The list of options.
+  repeated Option options = 9;
+}
+
+// The syntax statement.
+message Syntax {
+  // The set of syntax values.
+  enum Value {
+    // Syntax unspecified.
+    VALUE_UNSPECIFIED = 0;
+    // Syntax `proto2`.
+    VALUE_PROTO2 = 1;
+    // Syntax `proto3`.
+    VALUE_PROTO3 = 2;
+  }
+
+  // The syntax value.
+  Value value = 1;
+  // Source info.
+  SourceInfo source_info = 2;
+}
+
+// An import statement.
+message Import {
+  // The set of import labels.
+  enum Label {
+    // Label unspecified.
+    LABEL_UNSPECIFIED = 0;
+    // Public label.
+    LABEL_PUBLIC = 1;
+    // Weak label.
+    LABEL_WEAK = 2;
+  }
+
+  // The import label.
+  Label label = 1;
+  // The import path.
+  string path = 2;
+  // Source info.
+  SourceInfo source_info = 3;
+}
+
+// A protocol buffer package.
+message Package {
+  // The package name.
+  string name = 1;
+  // Source info.
+  SourceInfo source_info = 2;
+}
+
+// A protocol buffer message.
+message Message {
+  // The message name.
+  string name = 1;
+  // The list of fields.
+  repeated Field fields = 2;
+  // The list of nested messages.
+  repeated Message nested_messages = 3;
+  // The list of oneofs.
+  repeated Oneof oneofs = 4;
+  // The list of reserved ranges.
+  repeated ReservedRange reserved_ranges = 5;
+  // The list of reserved names.
+  repeated ReservedNames reserved_names = 6;
+  // The list of groups. proto2 syntax only.
+  repeated Group groups = 7;
+  // The list of extensions. proto2 syntax only.
+  repeated Extension extensions = 8;
+  // The list of extension ranges. proto2 syntax only.
+  repeated ExtensionRange extension_ranges = 9;
+  // The list of options.
+  repeated Option options = 10;
+  // Source info.
+  SourceInfo source_info = 11;
+}
+
+// Extension definition. proto2 syntax only.
+message Extension {
+  // Extension type name.
+  string type_name = 1;
+  // The list of fields.
+  repeated Field fields = 2;
+  // Source info.
+  SourceInfo source_info = 3;
+}
+
+// Extension range definition. proto2 syntax only.
+message ExtensionRange {
+  // The start of the range (inclusive).
+  int32 start = 1;
+  // The end of the range (exclusive).
+  int32 end = 2;
+  // The list of options.
+  repeated Option options = 3;
+  // Source info.
+  SourceInfo source_info = 4;
+}
+
+// Group definition. proto2 syntax only.
+message Group {
+  // Group name.
+  string name = 1;
+  // Group number.
+  string number = 2;
+  // The list of fields.
+  repeated Field fields = 3;
+  // The list of options.
+  repeated Option options = 4;
+  // Source info.
+  SourceInfo source_info = 5;
+}
+
+// Whether a field or group is optional, required, or repeated.
+enum Cardinality {
+  // For fields with unspecified cardinality.
+  CARDINALITY_UNSPECIFIED = 0;
+  // For optional fields.
+  CARDINALITY_OPTIONAL = 1;
+  // For required fields. proto2 syntax only.
+  CARDINALITY_REQUIRED = 2;
+  // For repeated fields.
+  CARDINALITY_REPEATED = 3;
+}
+
+// A single field of a message type.
+message Field {
+  // The field cardinality.
+  Cardinality cardinality = 1;
+  // The field name.
+  string name = 2;
+  // The field number.
+  int32 number = 3;
+  // The field type name, inlcuding its package identifier (e.g. `acme.pet.v1.Pet`).
+  string type_name = 4;
+  // The list of options.
+  repeated Option options = 5;
+  // Source info.
+  SourceInfo source_info = 6;
+}
+
+// Oneof definition.
+message Oneof {
+  // Oneof name.
+  string name = 1;
+  // The list of fields.
+  repeated Field fields = 2;
+  // The list of options.
+  repeated Option options = 3;
+  // Source info.
+  SourceInfo source_info = 4;
+}
+
+// Enum type definition.
+message Enum {
+  // Enum type name.
+  string name = 1;
+  // Enum value definitions.
+  repeated EnumValue enum_value = 2;
+  // Enum reserved ranges.
+  repeated ReservedRange reserved_ranges = 3;
+  // Enum reserved names.
+  repeated ReservedNames reserved_names = 4;
+  // Protocol buffer options.
+  repeated Option options = 5;
+  // Source info.
+  SourceInfo source_info = 6;
+}
+
+// Enum value definition.
+message EnumValue {
+  // Enum value name.
+  string name = 1;
+  // Enum value number.
+  int32 number = 2;
+  // Protocol buffer options.
+  repeated Option options = 3;
+  // Source info.
+  SourceInfo source_info = 4;
+}
+
+// Reserved range definition.
+message ReservedRange {
+  // The start of the range (inclusive).
+  int32 start = 1;
+  // The end of the range (exclusive).
+  int32 end = 2;
+  // Source info.
+  SourceInfo source_info = 3;
+}
+
+// Reserved names definition.
+message ReservedNames {
+  // The reserved names.
+  repeated string names = 1;
+  // Source info.
+  SourceInfo source_info = 2;
+}
+
+// Service definition.
+message Service {
+  // Service name.
+  string name = 1;
+  // Service method definitions.
+  repeated Method method = 2;
+  // The list of options.
+  repeated Option options = 3;
+  // Source info.
+  SourceInfo source_info = 4;
+}
+
+// Method definition.
+message Method {
+  // The set of method types.
+  enum Type {
+    // Type unspecified.
+    TYPE_UNSPECIFIED = 0;
+    // Unary method.
+    TYPE_UNARY = 1;
+    // Client streaming method.
+    TYPE_CLIENT_STREAMING = 2;
+    // Server streaming method.
+    TYPE_SERVER_STREAMING = 3;
+    // Bidirectional streaming method.
+    TYPE_BIDIRECTIONAL_STREAMING = 4;
+  }
+
+  // Method type.
+  Type type = 1;
+  // Method name.
+  string name = 2;
+  // The input type name.
+  string input_type_name = 3;
+  // The output type name.
+  string output_type_name = 4;
+  // Source info.
+  SourceInfo source_info = 5;
+}
+
+// Option definition, which can be attached to a message, field, enum, etc.
+message Option {
+  // The option's name. For protobuf built-in options this is the short name
+  // (e.g. `json_name`). For custom options, it is be the fully-qualified
+  // name (e.g. `(validate.rules).string`).
+  string name = 1;
+  // The option's value.
+  oneof value {
+    bytes bytes_value = 2;
+    bool bool_value = 3;
+    string string_value = 4;
+    float float_value = 5;
+    double double_value = 6;
+    int32 int32_value = 7;
+    int64 int64_value = 8;
+    uint32 uint32_value = 9;
+    uint64 uint64_value = 10;
+    sint32 sint32_value = 11;
+    sint64 sint64_value = 12;
+    fixed32 fixed32_value = 13;
+    fixed64 fixed64_value = 14;
+    sfixed32 sfixed32_value = 15;
+    sfixed64 sfixed64_value = 16;
+  }
+  // Source info.
+  SourceInfo source_info = 17;
+}
+
+// SourceInfo captures information about a particular node's
+// source information. This includes its file path, line, column,
+// and comments. This is attached to every node that can have
+// comments associated with it.
+message SourceInfo {
+  // The file path.
+  string file_path = 1;
+  // The line where this source info begins.
+  int32 start_line = 2;
+  // The line where this source info ends.
+  int32 end_line = 3;
+  // The column where this source info begins.
+  int32 start_column = 4;
+  // The column where this source info ends.
+  int32 end_column = 5;
+  // Leading comments, e.g.
+  //
+  //  // I'm a leading comment.
+  //  message Foo {}
+  //
+  string leading_comments = 6;
+  // Trailing comments, e.g.
+  //
+  //  message Foo {} // I'm a trailing comment.
+  //
+  string trailing_comments = 7;
+  // Leading detached comments, e.g.
+  //
+  //  // I'm a leading detached comment.
+  //
+  //  message Foo {}
+  //
+  repeated string leading_detached_comments = 8;
+}

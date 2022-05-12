@@ -23,8 +23,10 @@ import (
 
 	"github.com/bufbuild/buf/private/bufpkg/bufimage"
 	"github.com/bufbuild/buf/private/bufpkg/bufimage/bufimagebuild"
+	"github.com/bufbuild/buf/private/bufpkg/bufimage/bufimageutil/bufimageutiltesting"
 	"github.com/bufbuild/buf/private/bufpkg/bufmodule"
 	"github.com/bufbuild/buf/private/bufpkg/bufmodule/bufmoduleref"
+	pluginv1alpha1 "github.com/bufbuild/buf/private/gen/proto/go/buf/alpha/plugin/v1alpha1"
 	"github.com/bufbuild/buf/private/pkg/storage"
 	"github.com/bufbuild/buf/private/pkg/storage/storagemem"
 	"github.com/bufbuild/buf/private/pkg/storage/storageos"
@@ -34,6 +36,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap/zaptest"
 	"golang.org/x/tools/txtar"
+	"google.golang.org/protobuf/proto"
 )
 
 const shouldUpdateExpectations = false
@@ -89,6 +92,77 @@ func TestImportModifiers(t *testing.T) {
 func TestExtensions(t *testing.T) {
 	t.Parallel()
 	runDiffTest(t, "testdata/extensions", []string{"pkg.Foo"}, "extensions.txtar")
+}
+
+func TestNewPluginFiles(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	bucket, err := storagemem.NewReadBucket(map[string][]byte{
+		"foo.proto": []byte(`
+syntax = "proto2";
+
+package foo;
+
+import "google/protobuf/descriptor.proto";
+
+option go_package = "github.com/bufbuild/buf/gen/proto/go";
+
+option (foo) = {
+  name: "bar"
+};
+
+extend google.protobuf.FileOptions {
+  optional Foo foo = 80000;
+}
+
+message Foo {
+  optional string name = 1;
+}
+`),
+	})
+	require.NoError(t, err)
+	module, err := bufmodule.NewModuleForBucket(ctx, bucket)
+	require.NoError(t, err)
+	image, analysis, err := bufimagebuild.NewBuilder(zaptest.NewLogger(t)).Build(
+		ctx,
+		bufmodule.NewModuleFileSet(module, nil),
+		bufimagebuild.WithExcludeSourceCodeInfo(),
+	)
+	require.NoError(t, err)
+	require.Empty(t, analysis)
+	pluginFiles, err := NewPluginFiles(image)
+	require.NoError(t, err)
+	require.Len(t, pluginFiles, 2)
+	var index int
+	for i, pluginFile := range pluginFiles {
+		if pluginFile.Path == "foo.proto" {
+			index = i
+			break
+		}
+	}
+	pluginFile := pluginFiles[index]
+	assert.Equal(t, "foo.proto", pluginFile.Path)
+	require.Len(t, pluginFile.Options, 2)
+
+	// The following demonstrates how we would unmarshal
+	// a standard file option (e.g. "go_package").
+	goPackageFileOption := pluginFile.Options[0]
+	assert.Equal(t, "go_package", goPackageFileOption.Name)
+	stringValue, ok := goPackageFileOption.Value.(*pluginv1alpha1.Option_StringValue)
+	require.True(t, ok)
+	assert.Equal(t, "github.com/bufbuild/buf/gen/proto/go", stringValue.StringValue)
+
+	// The following demonstrates how we would unmarshal
+	// a custom option.
+	customFileOption := pluginFile.Options[1]
+	assert.Equal(t, "foo", customFileOption.Name)
+	bytesValue, ok := customFileOption.Value.(*pluginv1alpha1.Option_BytesValue)
+	require.True(t, ok)
+	// Now that we know the type is foo.Foo, I can include it in my
+	// plugin to recover the custom option value like so.
+	foo := &bufimageutiltesting.Foo{}
+	require.NoError(t, proto.Unmarshal(bytesValue.BytesValue, foo))
+	assert.Equal(t, "bar", *foo.Name)
 }
 
 func TestTransitivePublicFail(t *testing.T) {

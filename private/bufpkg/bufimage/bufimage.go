@@ -19,7 +19,9 @@ import (
 	"sort"
 
 	"github.com/bufbuild/buf/private/bufpkg/bufmodule/bufmoduleref"
+	"github.com/bufbuild/buf/private/bufpkg/bufplugin"
 	imagev1 "github.com/bufbuild/buf/private/gen/proto/go/buf/alpha/image/v1"
+	pluginv1alpha1 "github.com/bufbuild/buf/private/gen/proto/go/buf/alpha/plugin/v1alpha1"
 	"github.com/bufbuild/buf/private/pkg/normalpath"
 	"github.com/bufbuild/buf/private/pkg/protodescriptor"
 	"google.golang.org/protobuf/types/descriptorpb"
@@ -375,6 +377,28 @@ func ImageToCodeGeneratorRequest(
 		image,
 		parameter,
 		compilerVersion,
+		includeImports,
+		includeWellKnownTypes,
+		nil,
+		nil,
+	)
+}
+
+// ImageToGenerateRequest returns a new GenerateRequest for the Image.
+//
+// All non-imports are added as files to generate.
+// If includeImports is set, all non-well-known-type imports are also added as files to generate.
+// If includeWellKnownTypes is set, well-known-type imports are also added as files to generate.
+// includeWellKnownTypes has no effect if includeImports is not set.
+func ImageToGenerateRequest(
+	image Image,
+	parameters []*bufplugin.OptionConfig,
+	includeImports bool,
+	includeWellKnownTypes bool,
+) *pluginv1alpha1.GenerateRequest {
+	return imageToGenerateRequest(
+		image,
+		parameters,
 		includeImports,
 		includeWellKnownTypes,
 		nil,

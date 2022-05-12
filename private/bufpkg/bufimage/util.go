@@ -19,8 +19,10 @@ import (
 	"fmt"
 
 	"github.com/bufbuild/buf/private/bufpkg/bufmodule/bufmoduleref"
+	"github.com/bufbuild/buf/private/bufpkg/bufplugin"
 	"github.com/bufbuild/buf/private/gen/data/datawkt"
 	imagev1 "github.com/bufbuild/buf/private/gen/proto/go/buf/alpha/image/v1"
+	pluginv1alpha1 "github.com/bufbuild/buf/private/gen/proto/go/buf/alpha/plugin/v1alpha1"
 	"github.com/bufbuild/buf/private/pkg/normalpath"
 	"github.com/bufbuild/buf/private/pkg/protodescriptor"
 	"github.com/bufbuild/buf/private/pkg/stringutil"
@@ -396,6 +398,36 @@ func imageToCodeGeneratorRequest(
 			includeWellKnownTypes,
 		) {
 			request.FileToGenerate = append(request.FileToGenerate, imageFile.Path())
+		}
+	}
+	return request
+}
+
+func imageToGenerateRequest(
+	image Image,
+	parameters []*bufplugin.OptionConfig,
+	includeImports bool,
+	includeWellKnownTypes bool,
+	alreadyUsedPaths map[string]struct{},
+	nonImportPaths map[string]struct{},
+) *pluginv1alpha1.GenerateRequest {
+	imageFiles := image.Files()
+	request := &pluginv1alpha1.GenerateRequest{}
+	if parameters != nil {
+		// TODO: Map the *bufplugin.OptionConfig
+		// into the *bufpluginv1alpha1.Parameter type.
+		request.Parameters = make([]*pluginv1alpha1.Parameter, len(parameters))
+	}
+	for _, imageFile := range imageFiles {
+		// TODO: Map each ImageFile into the bufpluginv1alpha1.File type.
+		if isFileToGenerate(
+			imageFile,
+			alreadyUsedPaths,
+			nonImportPaths,
+			includeImports,
+			includeWellKnownTypes,
+		) {
+			request.FilesToGenerate = append(request.FilesToGenerate, imageFile.Path())
 		}
 	}
 	return request
