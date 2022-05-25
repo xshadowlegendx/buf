@@ -3,7 +3,7 @@ module github.com/bufbuild/buf
 go 1.18
 
 require (
-	github.com/bufbuild/connect-go v0.0.0-20220525015055-b6c585952c5a
+	github.com/bufbuild/connect-go v0.0.0-20220525141242-b79148bf7e44
 	github.com/gofrs/flock v0.8.1
 	github.com/gofrs/uuid v4.2.0+incompatible
 	github.com/google/go-cmp v0.5.8
