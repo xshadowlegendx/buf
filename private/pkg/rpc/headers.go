@@ -19,6 +19,10 @@ import (
 	"strings"
 )
 
+// KeyPrefix is the prefix of both http and grpc headers
+// set with rpc packages.
+const KeyPrefix = "rpc-"
+
 type outgoingHeadersContextKey struct{}
 type incomingHeadersContextKey struct{}
 
@@ -142,6 +146,23 @@ func WithOutgoingHeaders(ctx context.Context, headers map[string]string) context
 		return context.WithValue(ctx, outgoingHeadersContextKey{}, updatedHeaders)
 	}
 	return ctx
+}
+
+// StripHeaderPrefixes strips the KeyPrefix from any of the header keys.
+func StripHeaderPrefixes(headers map[string]string) map[string]string {
+	out := make(map[string]string)
+	for key, value := range headers {
+		key = strings.ToLower(key)
+		if !strings.HasPrefix(key, KeyPrefix) {
+			out[key] = value
+		}
+		trimmedKey := strings.TrimPrefix(key, KeyPrefix)
+		if trimmedKey == "" {
+			out[key] = value
+		}
+		out[trimmedKey] = value
+	}
+	return out
 }
 
 func normalizeHeaderKey(key string) string {
